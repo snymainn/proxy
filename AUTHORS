@@ -1,2 +1,3 @@
 Krzysztof Kliś - original code base
 Jérôme Poulin - various fixes and performance improvements
+Tommy Skagemo-Andreassen - rewrote to use diskbuffer on return link 
