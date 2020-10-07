@@ -1,137 +1,41 @@
 ## Description
 
-This is a simple proxy daemon that allows you to forward TCP requests hitting a specified port on the localhost to a different port on another host. It can also forward data through external commands (for logging, filtering or copying network traffic). It is written in ANSI C so it takes a very little space and can be used on embedded devices.
+This is a simple proxy daemon that allows you to forward TCP requests hitting a specified port on the localhost to a different port on another remote host. 
+On the return channel it uses a file buffer to avoid losing data when transfer back to the client making the request is slower than rate from remote host to localhost.
+client->port on localhost->port on remote host->localhost->buffer file->client
+This means that there are one main process accepting new connections
+Each new connection will fork three new processes:
+- Incoming data from client->localhost->remote host
+- Data from remote host->localhost_file
+- Data from localhost_file->client
+
+This proxy is made to support transport of satellite data from a baseband modem (like Cortex CRT) on a ground station back to a satellite operator. This often involves a single request to a specific port on the modem and getting a stream of data back. 
+
+It accepts multiple connections, each connection makes use of one file and three processes.
 
 ## Installation
 
-On Linux compile the software using "make". On Mac OS X use "make darwin". On Windows use "make" from Cygwin (http://cygwin.com). MinGW will not work, as it does not support *fork()* and *waitpid()*.
-
-To build an executable for Tomato firmware (http://www.polarcloud.com/tomato) you need to have the mipsel toolchain installed. Fetch it with git:
+Download the proxy_diskbuffer.c file and compile with "
 ```
-git clone git://repo.or.cz/tomato.git tomato
+gcc proxy_diskbuffer.c -o proxy_diskbuffer
 ```
-and follow instructions in the "tools/README.TXT" file.
-
-Next, build proxy for Tomato with:
+or clone the whole repo and compile with 
+``` 
+make
 ```
-make tomato
-```
-For OpenWRT firmware (http://openwrt.org) you can find right toolchains in folders with corresponding firmware images. For example, the Backfire toolchain for Broadcom chipset can be found at http://downloads.openwrt.org/backfire/10.03.1/brcm47xx/ in the *OpenWrt-Toolchain-brcm47xx-for-mipsel-gcc-4.3.3+cs_uClibc-0.9.30.1.tar.bz2* archive.
-
-Make the software with:
-```
-make openwrt
-```
-when using Whiterussian and Kamikaze toolchains, or
-```
-make backfire
-```
-when using the Backfire toolchain.
 
 ## Basic usage
 
 Command line syntax goes as follows:
 ```
-proxy -l local_port -h remote_host -p remote_port [-i "input parser"] [-o "output parser"] [-f (stay in foreground)]
+proxy_diskbuffer -t buffer_filename -l local_port -h remote_host -p remote_port [-f (stay in foreground)]
 ```
-Suppose you want to open port 8080 on a public host and forward all TCP packets to port 80 on machine 192.168.1.2 in the local network. In this case you will install proxy on a public host and run it the following command:
+Example with output to logfile:
 ```
-proxy -l 8080 -h 192.168.1.2 -p 80
+proxy_diskbuffer -t /data/proxy_buffer -l 3170 -h <ip> -p 3070 > proxy_diskbuffer.log 2>&1
 ```
-Normally, proxy forks into the background. To make it stay in the foreground (for example for debugging purposes), use "-f" switch:
-```
-proxy -l 8080 -h 192.168.1.2 -p 80 -f
-```
+Normally, proxy forks into the background. To make it stay in the foreground (for example for debugging purposes), use "-f" switch.
 
-## Parsers
-
-Input parser and output parser are commands through which incoming and outgoing packets can be forwarded. For example to use a "tee" command to log all incoming http data to incoming.txt file you can start proxy with the following options:
-```
-proxy -l 8080 -h 192.168.1.2 -p 80 -i "tee -a input.log" -o "tee -a output.log"
-```
-The parser command will receive data from socket to its standard input and should send parsed data to the standard output. It should also flush its output at a reasonable rate to not withhold network communication.
-
-**Important notice:** Use *read* and *write* system calls instead of stdio functions like *fgets* or *puts* when designing a parser to avoid buffering problems:
-```
-char buf[BUF_SIZE];
-int n;
-
-while ((n = read(STDIN_FILENO, buf, BUF_SIZE)) > 0) {
-    write(STDOUT_FILENO, buf, n);
-}
-```
-You can read more on buffering issues at http://www.pixelbeat.org/programming/stdio_buffering/
-
-## Advanced usage
-
-### Using parsers to replicate network traffic
-
-You can use input and output parsers to copy incoming / outgoing traffic to other hosts (e.g. for monitoring reasons). Just use "tee" command to replicate network packets to named pipes and then read from those pipes.
-
-The following scenario assumes you set up the program on local port 8080 as a proxy to www.wikipedia.org, and copy all outgoing requests to servers listening on ports 9000 and 9001 on localhost.
-
-First, create the listeners (each one in separate terminal window):
-```
-while true; do nc -l 9000; done
-while true; do nc -l 9001; done
-```
-Next, create named pipes "fifo0" and "fifo1":
-```
-mkfifo fifo0
-mkfifo fifo1
-```
-Next, start reading data in loop from the pipes and forwarding it to the listeners (run these commands in separate terminals also):
-```
-while true; do cat fifo0 | nc localhost 9000; done
-while true; do cat fifo1 | nc localhost 9001; done
-```
-Last, set up the proxy:
-```
-proxy -l 8080 -h www.example.com -p 80 -o "tee fifo0 fifo1"
-```
-Now when you send a request through the proxy, you should see it on all terminals where you set up the listeners:
-```
-curl -i http://localhost:8080
-```
-**Important notice:** Make sure to read data from all the pipes. If you don't, tee will stuck on writing to the pipe which is not being read from, and so the proxy will be stuck also. Also if you restart a listener, netcat may not reconnect to it, which means that you will need to restart the appropriate forwarder script, too.
-
-### Local http proxy with traffic logging
-
-Check ip address of the host you want to connect to:
-```
-ping www.example.com
-```
-Add the IP to static hosts list ("/etc/hosts" on Linux, "C:\Windows\System32\Drivers\etc\hosts" on Windows). Start the proxy pointing to the IP (don't use domain name to avoid request loop):
-```
-sudo proxy -l 80 -h 93.184.216.119 -p 80 -i "tee input.log" -o "tee output.log"
-```
-Point your browser to http://www.example.com and watch the contents of input.log and output.log files.
-
-### IPv6 support
-
-The proxy normally will accept IPv4 and IPv6 connections if your system support it. 
-You can even forward IPv6 clients to any legacy IPv4 service.
-By using numeric IPs on -b and -h parameters, proxy will use corresponding IPv4 or IPv6 socket to listen or connect.
-
-The option [-b bind_address] force binding on specifc socket. It must be a local interface address.
+Each connection will add an index to the buffer file like this for the first connection: proxy_buffer_01
 
 
-Accepting IPv6 connections and forwarding to IPv6 service: (still accepting IPv4 connections)
-```
-proxy -l 8080 -h fdd0:beef:c4ea:2016::1 -p 8080
-```
-
-Accepting IPv6 connections and forwarding to legacy IPv4 service: (still accepting IPv4 connections)
-```
-proxy -l 8080 -h 192.168.1.2 -p 8080
-```
-
-Accepting IPv4 only connections and forwarding to IPv6 service:
-```
-proxy -l 8080 -b 192.168.1.1 -h fdd0:beef:c4ea:2016::1 -p 8080
-```
-
-Accepting IPv4 only connections and forwarding to IPv4 service:
-```
-proxy -l 8080 -b 192.168.1.1 -h 192.168.1.2 -p 8080
-```
