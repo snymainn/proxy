@@ -2,8 +2,12 @@
 
 This is a simple proxy daemon that allows you to forward TCP requests hitting a specified port on the localhost to a different port on another remote host. 
 On the return channel it uses a file buffer to avoid losing data when transfer back to the client making the request is slower than rate from remote host to localhost.
+
+Path: 
 client->port on localhost->port on remote host->localhost->buffer file->client
+
 This means that there are one main process accepting new connections
+
 Each new connection will fork three new processes:
 - Incoming data from client->localhost->remote host
 - Data from remote host->localhost_file
