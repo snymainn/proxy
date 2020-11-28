@@ -4,6 +4,7 @@
  * Author: Krzysztof Kliś <krzysztof.klis@gmail.com>
  * Fixes and improvements: Jérôme Poulin <jeromepoulin@gmail.com>
  * IPv6 support: 04/2019 Rafael Ferrari <rafaelbf@hotmail.com>
+ * Diskbuffer: 10/2020 Tommy Skagemo-Andreassen
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
